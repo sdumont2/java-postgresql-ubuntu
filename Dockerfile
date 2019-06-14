@@ -2,7 +2,7 @@
 FROM ubuntu:latest
 
 RUN apt-get update
-RUN apt-get install -y --no-install-recommends gnupg dirmngr bzip2 unzip xz-utils ca-certificates p11-kit fontconfig libfreetype6 wget libnss-wrapper
+RUN apt-get install -y --no-install-recommends gnupg dirmngr bzip2 unzip xz-utils ca-certificates p11-kit fontconfig libfreetype6 wget libnss-wrapper sudo
 RUN rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
@@ -11,7 +11,8 @@ RUN set -eux; \
 	usermod -aG sudo postgres; \
 	mkdir -p /var/lib/postgresql; \
 	chown -R postgres:postgres /var/lib/postgresql; \
-	echo '%sudo	ALL=NOPASSWD: ALL' >> /etc/sudoers
+	echo '%sudo	ALL=NOPASSWD: ALL' >> /etc/sudoers; \
+	echo 'Defaults        env_keep += "JAVA_HOME"' >> /etc/sudoers
 
 RUN mkdir ~/.gnupg
 RUN echo "disable-ipv6" >> ~/.gnupg/dirmngr.conf
@@ -23,7 +24,14 @@ RUN set -x \
 	&& wget -O /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$(dpkg --print-architecture)" \
 	&& wget -O /usr/local/bin/gosu.asc "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$(dpkg --print-architecture).asc" \
 	&& export GNUPGHOME="$(mktemp -d)" \
-	&& gpg --batch --keyserver ha.pool.sks-keyservers.net --recv-keys B42F6819007F00F88E364FD4036A9C25BF357DD4 \
+	&& for keyserver in $(shuf -e \
+			ha.pool.sks-keyservers.net \
+			hkp://p80.pool.sks-keyservers.net:80 \
+			keyserver.ubuntu.com \
+			hkp://keyserver.ubuntu.com:80 \
+			pgp.mit.edu) ; do \
+		gpg --keyserver $keyserver --recv-keys B42F6819007F00F88E364FD4036A9C25BF357DD4 && break || true ; \
+	done \
 	&& gpg --batch --verify /usr/local/bin/gosu.asc /usr/local/bin/gosu \
 	&& { command -v gpgconf > /dev/null && gpgconf --kill all || :; } \
 	&& rm -rf "$GNUPGHOME" /usr/local/bin/gosu.asc \
@@ -112,7 +120,7 @@ ENV LANG en_US.utf8
 # https://cwrap.org/nss_wrapper.html
 RUN set -eux; \
 	apt-get update; \
-	apt-get install -y --no-install-recommends libnss-wrapper; \
+	apt-get install -y --no-install-recommends libnss-wrapper sudo; \
 	rm -rf /var/lib/apt/lists/*
 
 RUN mkdir /docker-entrypoint-initdb.d
@@ -123,7 +131,14 @@ RUN set -ex; \
 # uid                  PostgreSQL Debian Repository
 	key='B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8'; \
 	export GNUPGHOME="$(mktemp -d)"; \
-	gpg --batch --keyserver ha.pool.sks-keyservers.net --recv-keys "$key"; \
+	for keyserver in $(shuf -e \
+			ha.pool.sks-keyservers.net \
+			hkp://p80.pool.sks-keyservers.net:80 \
+			keyserver.ubuntu.com \
+			hkp://keyserver.ubuntu.com:80 \
+			pgp.mit.edu) ; do \
+		gpg --keyserver $keyserver --recv-keys "$key" && break || true ; \
+	done; \
 	gpg --batch --export "$key" > /etc/apt/trusted.gpg.d/postgres.gpg; \
 	command -v gpgconf > /dev/null && gpgconf --kill all; \
 	rm -rf "$GNUPGHOME"; \
@@ -222,7 +237,39 @@ RUN set -eux; \
 
 RUN mkdir -p /var/run/postgresql && chown -R postgres:postgres /var/run/postgresql && chmod 2777 /var/run/postgresql
 
+RUN apt-get update
+RUN apt-get install -y --no-install-recommends gnupg dirmngr bzip2 unzip xz-utils ca-certificates p11-kit fontconfig libfreetype6 wget libnss-wrapper sudo
+
 ENV PATH $PATH:/usr/lib/postgresql/$PG_MAJOR/bin
+
+RUN echo export JAVA_HOME="$JAVA_HOME" >> /etc/profile
+RUN echo export PATH="$PATH":'$PATH' >> /etc/profile
+RUN echo 'export PATH=$JAVA_HOME/bin:$PATH' >> /etc/profile
+RUN echo alias java="$JAVA_HOME"/bin/java >> /etc/profile
+RUN cat /etc/profile
+RUN /bin/bash -c "source /etc/profile"
+
+RUN echo export JAVA_HOME="$JAVA_HOME" >> ~/.bash_profile
+RUN echo export PATH="$PATH":'$PATH' >> ~/.bash_profile
+RUN echo 'export PATH=$JAVA_HOME/bin:$PATH' >> ~/.bash_profile
+RUN echo alias java="$JAVA_HOME"/bin/java >> ~/.bash_profile
+RUN cat ~/.bash_profile
+RUN /bin/bash -c "source ~/.bash_profile"
+
+RUN echo export JAVA_HOME="$JAVA_HOME" >> /etc/bashrc
+RUN echo export PATH="$PATH":'$PATH' >> /etc/bashrc
+RUN echo 'export PATH=$JAVA_HOME/bin:$PATH' >> /etc/bashrc
+RUN echo alias java="$JAVA_HOME"/bin/java >> /etc/bashrc
+RUN cat /etc/bashrc
+RUN /bin/bash -c "source /etc/bashrc"
+
+RUN echo JAVA_HOME="$JAVA_HOME" >> /etc/environment
+RUN /bin/bash -c "source /etc/environment"
+
+RUN echo 'Defaults        secure_path += "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:'"$JAVA_HOME"'/bin"' >> /etc/sudoers
+
+RUN cat /etc/sudoers
+
 ENV PGDATA /var/lib/postgresql/data
 # this 777 will be replaced by 700 at runtime (allows semi-arbitrary "--user" values)
 RUN mkdir -p "$PGDATA" && chown -R postgres:postgres "$PGDATA" && chmod 777 "$PGDATA"
@@ -241,4 +288,10 @@ EXPOSE 61616
 EXPOSE 2003
 EXPOSE 8080
 EXPOSE 8443
+EXPOSE 32161
+EXPOSE 31616
+EXPOSE 32003
+EXPOSE 32090
+EXPOSE 32093
+EXPOSE 32432
 CMD ["postgres"]

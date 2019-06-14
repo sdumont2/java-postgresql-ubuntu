@@ -168,4 +168,19 @@ if [ "$1" = 'postgres' ]; then
 	fi
 fi
 
+if [ -e /opt/sync/entrypoint.sh ]; then
+	echo
+	echo 'Secondary entrypoint script exists. Executing.'
+	echo
+	eval 'sudo mv /opt/sync/entrypoint.sh /usr/local/bin/entrypoint.sh'
+	sh /usr/local/bin/entrypoint.sh
+	echo
+	echo 'Completed run of secondary entrypoint script. Finishing start up.'
+	echo
+else
+	echo
+	echo 'Secondary entrypoint script does not exist. Moving on.'
+	echo
+fi
+
 exec "$@"
